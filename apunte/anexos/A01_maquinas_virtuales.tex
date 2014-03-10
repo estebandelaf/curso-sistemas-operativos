@@ -1,0 +1,50 @@
+%
+% Apunte de Sistemas Operativos
+% Copyright (C) 2014 Esteban De La Fuente Rubio (esteban[at]delaf.cl)
+%
+% Permission is granted to copy, distribute and/or modify this document
+% under the terms of the GNU Free Documentation License, Version 1.3
+% or any later version published by the Free Software Foundation;
+% with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.
+% A copy of the license is included in the section entitled "GNU
+% Free Documentation License".
+%
+% Link: http://www.gnu.org/copyleft/fdl.html
+%
+
+% MÁQUINAS VIRTUALES
+\chapter{Máquinas virtuales}
+Una máquina virtual entrega una abstracción del hardware de la máquina hacia el
+sistema operativo, proporcionando una interfaz de hardware virtual similar a la
+de la máquina real. Los discos duros son emulados, por ejemplo, mediante
+imágenes de discos. El sistema operativo que corre sobre la máquina virtual
+desconoce tal condición, o sea, no sabe que funciona sobre una máquina virtual y
+no una real. Este tipo de sistemas permite correr múltiples sistemas operativos
+sobre una misma máquina. Ejemplos de sistemas de virtualización son KVM, XEN y
+VirtualBox.
+
+El sistema operativo que corre sobre la máquina virtual también posee un modo de
+ejecución usuario y de sistema, sin embargo estos son modos virtuales que corren
+sobre un modo usuario real. Esto significa que si en el sistema operativo
+virtual hay una solicitud a una llamada del sistema a través de un programa que
+corre en modo usuario virtual, esta será procesada por el sistema operativo en
+modo sistema virtual y se entregará a la máquina virtual, la cual, en modo
+usuario real, atenderá la interrupción mediante el hardware virtualizado y
+entregará la respuesta al sistema operativo. En caso que se requiera acceso al
+hardware real, la máquina virtual deberá hacer uso de la API del sistema
+operativo real para acceder al recurso solicitado.
+
+Es importante mencionar que los tiempos de respuesta en máquinas virtuales serán
+más lentos que en máquinas reales. Lo anterior debido a la emulación que se debe
+realizar del hardware y por la posibilidad de que existan múltiples máquinas
+virtuales en ejecución en un mismo sistema real.
+
+Las principales ventajas de esta solución es que permite realizar una protección
+por aislamiento de los recursos del sistema, ya que el sistema virtualizado solo
+verá dispositivos virtuales y en caso de cualquier problema solo podrá afectar a
+la máquina virtual quedando la máquina real protegida. Adicionalmente son un
+medio ideal para la realización de pruebas de sistemas operativos, como la
+prueba de módulos en desarrollo o la prueba de servicios que se desean
+implementar en una máquina real. También permiten aprovechar mejor el hardware
+disponible, entregando servicio en un mismo equipo a diferentes sistemas
+operativos que en conjunto comparten de forma eficiente el hardware disponible.

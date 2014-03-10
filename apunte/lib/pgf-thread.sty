@@ -1,0 +1,98 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Start of pgf-thread.sty
+%
+% Some Latex macros for Threads Diagrams.
+% Author: Esteban De La Fuente Rubio, DeLaF (esteban[at]delaf.cl)
+%
+% History:
+% v0.1 2012/05/02
+%
+
+\NeedsTeXFormat{LaTeX2e}[1999/12/01]
+\ProvidesPackage{pgf-thread}[2012/05/02 v0.1 Some LaTeX macros for Threads Diagrams]
+
+\RequirePackage{tikz}
+
+% Formatos
+% Estilos de línea: dotted, densely dotted, loosely dotted, dashed, densely dashed, loosesly dashed and solid.
+\tikzstyle{thread_wait} = [thick, dashed]
+\tikzstyle{thread_exec} = [thick, rounded corners=8]
+\tikzstyle{thread_call} = [thick]
+\tikzstyle{thread_line} = [thick, dotted]
+
+% Definición de un nuevo diagrama de hebras contiene \begin{thread}
+\newenvironment{threads}[2]{
+	\def \ThreadsLabel{#1}
+	\def \ThreadsCaption{#2}
+	\begin{figure}[htp]
+		\centering
+		\selectlanguage{english}
+		\begin{tikzpicture}
+}{
+		\end{tikzpicture}
+		\selectlanguage{spanish}
+		\caption{\ThreadsCaption}
+		\label{\ThreadsLabel}
+	\end{figure}
+}
+
+% Definición de una nueva hebra
+\newenvironment{thread}[2]{
+	\def \ThreadLocation{#2}
+	\draw (#2,.5) node {#1};
+	\def \ThreadStart{0}
+}{}
+
+% Definición de una función que se ejecuta mostrando su código
+\newenvironment{threadfunc}[2]{
+  % dibujar lo que falte desde el inicio y actualizar nuevo inicio
+	\draw[thread_exec] (\ThreadLocation,\ThreadStart) -- (\ThreadLocation,-#1+.5);
+	\def \ThreadStart{-#1-.5}
+	% dibujar lo que solicita
+	\draw[thread_exec] (\ThreadLocation,-#1+.5) -- (\ThreadLocation,-#1) -- (\ThreadLocation+.5,-#1) -- (\ThreadLocation+.5,-#1-.5);
+	\draw (\ThreadLocation+.3,-#1+.3) node [right] {#2};
+	% mover hilo hacia la derecha para ejecución de la función
+% FIXME: DANDO JUGO: usar contador
+%	\def \newThreadLocation{\ThreadLocation+.5}
+%	\def \ThreadLocation{\newThreadLocation}
+}{
+%	\def \ThreadLocation{\ThreadLocation-.5}
+	%\draw[thread_exec] (\ThreadLocation+.5,-#3) -- (\ThreadLocation,-#3) -- (\ThreadLocation,-#3-.5);
+}
+
+% Sobreescribir el tiempo de inicio del thread
+\newcommand{\threadstart}[1]{
+	\def \ThreadStart{-#1}
+}
+
+% Ejecutar un trozo de código sin entrar a una nueva función
+\newcommand{\threadcall}[2]{
+  % dibujar lo que falte desde el inicio y actualizar nuevo inicio
+	\draw[thread_exec] (\ThreadLocation,\ThreadStart) -- (\ThreadLocation,-#1+.5);
+	\def \ThreadStart{-#1}
+	% dibujar lo que solicita
+	\draw[thread_exec] (\ThreadLocation,-#1+.5) -- (\ThreadLocation,-#1) -- (\ThreadLocation+.5,-#1) -- (\ThreadLocation,-#1) -- (\ThreadLocation,-#1-.5);
+	\draw (\ThreadLocation+.3,-#1+.3) node [right] {#2};
+}
+
+% Ejecución de una acción que debe esperar pero eventualmente retorna
+\newcommand{\threadwait}[4]{
+	% dibujar lo que falte desde el inicio y actualizar nuevo inicio
+%	\draw[thread_exec] (\ThreadLocation,\ThreadStart) -- (\ThreadLocation,-#1+.5);
+% DANDO JUGO: USAR CONTADOR
+%	\def \ThreadStart{-#3-.3}
+	% dibujar lo que solicita
+	\draw[thread_exec] (\ThreadLocation,-#1+.5) -- (\ThreadLocation,-#1) -- (\ThreadLocation+.5,-#1);
+	\draw (\ThreadLocation+.3,-#1+.3) node [right] {#2};
+	\draw[thread_wait] (\ThreadLocation+.5,-#1) -- (\ThreadLocation+.5,-#3);
+	\draw[thread_exec] (\ThreadLocation+.5,-#3) -- (\ThreadLocation,-#3) -- (\ThreadLocation,-#3-.5);
+	\draw (\ThreadLocation+.3,-#3-.3) node [right] {#4};
+}
+
+% Dibujar línea que "une" tareas
+\newcommand{\threadline}[2]{
+	\draw[thread_line] (\ThreadLocation+.5,-#1) -- (#2+.5,-#1);
+}
+
+%%% End of pgf-thread.sty
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
