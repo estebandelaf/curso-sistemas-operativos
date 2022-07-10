@@ -1,0 +1,539 @@
+%
+% Apunte de Sistemas Operativos
+% Copyright (C) 2014 Esteban De La Fuente Rubio (esteban[at]delaf.cl)
+%
+% Permission is granted to copy, distribute and/or modify this document
+% under the terms of the GNU Free Documentation License, Version 1.3
+% or any later version published by the Free Software Foundation;
+% with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.
+% A copy of the license is included in the section entitled "GNU
+% Free Documentation License".
+%
+% Link: http://www.gnu.org/copyleft/fdl.html
+%
+
+% NSYSTEM
+\chapter{nSystem}
+\label{nSystem}
+
+nSystem (nano System) corresponde a un \textit{sistema operativo de juguete}, desarrollado por el profesor Luis Mateu\footnote{\url{http://www.dcc.uchile.cl/~lmateu}}, de la Universidad de Chile, durante el año 1993 como herramienta para el curso de sistemas operativos que imparte desde esa misma fecha. En ese entonces existía uSystem (micro System), sin embargo a pesar de ser un sistema operativo pequeño era más complejo, esta fue la razón por la que decidió programar su propia versión utilizando un código más reducido.
+
+Se hace uso de procesos livianos, llamadas tareas, las nSystem las puedes tratar como procesos \textit{preemptive} o \textit{non-preemptive}, lo cual es configurable.
+
+El sistema operativo corre sobre un proceso pesado en Unix, y permite realizar una simulación de un sistema operativo gracias a que cada proceso tiene su propio \textit{timer} y existe disponibilidad de señales en los procesos. Entonces, se multiplexa el tiempo virtual del proceso pesado en tajadas para cada una de las tareas que corren sobre nSystem.
+
+Es importante mencionar que no existe verdadero paralelismo, aunque existan múltiples CPUs en la máquina, ya que el proceso pesado utilizado corre sobre un único núcleo (Unix ve solo un proceso, independiente de las tareas que existan).
+
+\section{API}
+
+\subsection{Creación de tareas}
+\begin{verbatim}
+/**
+ * Crear una nueva tarea
+ * Solo recibe enteros o punteros
+ * Solo retorna enteros
+ */
+nTask nEmitTask(int (*proc)(), ...);
+
+/**
+ * Esperar a que una tarea termine y entregue el resultado
+ * Solo retorna enteros (proveniente de la tarea)
+ * Por cada nEmitTask debe haber un y solo un nWaitTask asociado
+ */
+int nWaitTask(nTask task);
+
+/**
+ * Término anticipado de una tarea
+ * Recibe como parámetro el valor que se desea retornar
+ */
+void nExitTask(int rc);
+\end{verbatim}
+
+\subsubsection{Ejemplo serie de Fibonacci}
+
+Utilicemos el siguiente código que calcula recursivamente los elementos de una serie de Fibonacci:
+
+\begin{verbatim}
+int fib (int n) {
+  if(n<=1) return n;
+  else return fib(n-1) + fib(n-2);
+}
+\end{verbatim}
+
+\textbf{¿Cómo se pueden crear tareas para realizar el cálculo de manera paralela en vez de recursiva?} A continuación se muestra una implementación, usando tareas de nSystem, en que se crean dos tareas que ejecutarán en paralelo la función recursiva para realizar el cálculo.
+
+\begin{verbatim}
+int pfib (int n) {
+  if(n<=1) return n;
+  else {
+    nTask t1 = nEmitTask(fib, n-1);
+    ntask t2 = nEmitTask(fib, n-2);
+    int rc1 = nWaitTask(t1);
+    int rc2 = nWaitTask(t2);
+    return rc1 + rc2;
+  }
+}
+\end{verbatim}
+
+La función \emph{nEmitTask} lanza una nueva tarea en \emph{nSystem}, estas se ejecutarán de forma paralela. La función \emph{nWaitTask} esperará hasta que la tarea indicada termine y recuperará el retorno de dicha tarea (el cual debe ser un entero siempre). En caso que la tarea termine antes que se haya ejecutado su correspondiente \emph{nWaitTask}, esta quedará en estado \emph{zombie} hasta que sea ejecutada la llamada necesaria.
+
+\textbf{¿Por qué se utiliza la función recursiva para las tareas en \emph{pfib()}?} No es buena idea crear mucho paralelismo, ya que se podrían obtener aplicaciones muy caras e ineficientes. Una alternativa, para conseguir más paralelismo, es permitir la creación de todas las tareas como hebras hasta un cierto límite, luego de excedido el límite empezar a usar la forma recursiva, o no paralela, esto se muestra a continuación.
+
+\begin{verbatim}
+int pfib (int n, int p) {
+  if(n<=1)
+    return n;
+  else if (p<=1)
+    return fib(n);
+  else {
+    nTask t1 = nEmitTask(pfib, n-1, p/2);
+    nTask t2 = nEmitTask(pfib, n-2, p-p/2);
+    int rc1 = nWaitTask(t1);
+    int rc2 = nWaitTask(t2);
+    return rc1 + rc2;
+  }
+}
+\end{verbatim}
+
+\subsubsection{Ejemplo factorial}
+
+Se presenta una solución incorrecta, que presenta \emph{dataraces}:
+
+\begin{verbatim}
+double fact (int n) {
+  double p = 1.0;
+  pprod (1, n, &p);
+  return p;
+}
+
+int pprod (int i, int j, double *pp) {
+  if(j-i<15) {
+    int k;
+    for (k=i; k<=j; k++)
+      *pp *= k;
+  }
+  else {
+    nTask t1 = nEmitTask(pprod, i, (i+j)/2, pp);
+    nTask t2 = nEmitTask(pprod, (i+j)/2+1, j, pp);
+    nWaitTask(t1);
+    nWaitTask(t2);
+  }
+  return 0;
+}
+\end{verbatim}
+
+Solución compartiendo memoria con semáforos, sin \emph{datarace}:
+
+\begin{verbatim}
+double fact (int n) {
+  double p = 1.0;
+  nSem s = nMakeSem(1);
+  pprod (1, n, &p, s);
+  return p;
+}
+
+int pprod (int i, int j, double *pp, nSem s) {
+  if(j-i<15) {
+    int k;
+    for (k=i; k<=j; k++) {
+      nWaitSem(s);
+      *pp *= k;
+      nSignalSem(s);
+  }
+  else {
+    nTask t1 = nEmitTask(pprod, i, (i+j)/2, pp);
+    nTask t2 = nEmitTask(pprod, (i+j)/2+1, j, pp);
+    nWaitTask(t1);
+    nWaitTask(t2);
+  }
+  return 0;
+}
+\end{verbatim}
+
+Solución sin compartir la memoria (mejor que con semáforos):
+
+\begin{verbatim}
+double fact (int n) {
+  double p;
+  pprod (1, n, &p);
+  return p;
+}
+
+int pprod (int i, int j, double *pp) {
+  if(j-i<15) {
+    int k;
+    double p = 1.0;
+    for (k=i; k<=j; k++)
+      p *= k;
+    *pp = p;
+  }
+  else {
+    double p1, p2;
+    nTask t1 = nEmitTask(pprod, i, (i+j)/2, &p1);
+    nTask t2 = nEmitTask(pprod, (i+j)/2+1, j, &p2);
+    nWaitTask(t1); /* es obligatorio siempre llamar a nWaitTask */
+    nWaitTask(t2); /* para poder garantizar valores de p1 y p2*/
+    *pp = p1 * p2;
+  }
+  return 0;
+}
+\end{verbatim}
+
+Si no se utilizara \emph{nWaitTask}, se pasaría directamente a la multiplicación de p1 con p2, pero estos contienen \emph{basura}, por lo cual el resultado de la multiplicación sería cualquier cosa. \emph{nWaitTask} asegurará que se obtiene el resultado de p1 y p2 primero y luego se pasa a multiplicar.
+
+\section{Descriptor y estados de un proceso}
+
+En nSystem el descriptor del proceso se encuentra en nSysimp.h, parte de su código:
+\begin{verbatim}
+typedef struct Task {
+  int status;              /* READY, ZOMBIE, WAIT_SLEEP_X */
+  SP sp;                   /* posición actual dentro de la pila */
+  SP stack;                /* pila que se asignó al proceso */
+  struct Task *next_task;  /* listado de tareas */
+  struct Task *wait_task;  /* lista de tareas que esperan a esta tarea */
+  /* otros campos para implementar mensajes, nSleep, etc */
+} *nTask;
+\end{verbatim}
+
+Cuando las tareas están corriendo existe una variable global llamada current\_task que apunta al proceso que esta en ejecución en ese momento, y su estado es READY, no existe el estado RUNNING. En sistemas operativos de varios núcleos no puede usar esta variable global, ahí debe haber una función que indique que proceso esta corriendo en cierto procesador.
+
+La variable SP solo tiene sentido al no estar en ejecución la tarea, ya que el verdadero \textit{stack pointer} que se utilizará es el registro físico de la máquina.
+
+Notar que al usar ``\#include nSystem.h'' se encapsula con void* a nTask y no se puede acceder directamente a los campos, en cambio con nSysimp.h si se puede acceder directamente. Esto se hace mediante un puntero opaco y la definición del tipo de datos como ``typedef void* nTask;''.
+
+\section{Implementación primitivas de sincronización}
+
+\subsection{Semáforos}
+Para obtener exclusión mutua dentro de la la implementación de los semáforos se hace uso de las funciones START\_CRITICAL y END\_CRITICAL, que deshabilitan y habilitan respectivamente las señales que el proceso puede recibir. Esto permite operar de forma segura (exclusiva) sobre el contador del semáforo.
+
+\begin{verbatim}
+/* Implementación del SEMÁFORO */
+typedef struct {
+  int c;
+  Queue q;
+} *nSem;
+
+/* Implementación de WAIT */
+void nWaitSem(nSem s) {
+  START_CRITICAL(); /* Uso de sigprocmask (ver nDep.c) */
+  if(s->c>0) {
+    s->c--;
+  }
+  else {
+    current_task->status = WAIT_SEM;
+    PutTask(s->q, current_task); /* Agrega tarea al final de la cola */
+    Resume(); /* Reactiva la primera tarea de la cola de tareas */
+  }
+  END_CRITICAL();
+}
+
+/* Implementación de SIGNAL */
+void nSignalSem(nSem s) {
+  START_CRITICAL();
+  if(EmptyQueue(s->q)) {
+    s->c++;
+  }
+  else {
+    nTask w = GetTask(s->q);
+    w->status = READY;
+    PushTask(ready_queue, current_task); /* Agrega tarea al inicio */
+    PushTask(ready_queue, w);
+    Resume(); /* Reactiva la tarea que esta al inicio */
+  }
+  END_CRITICAL();
+}
+\end{verbatim}
+
+Si no se utiliza sincronización pueden ocurrir \textit{data races}, por ejemplo que se ejecute \texttt{nWaitSem}, el cual ejecutará \texttt{PutTask}, pero antes de que termine ocurra una interrupción del \textit{timer} de nSystem, y se llama a \textit{Resume} mientras se esta ejecutando PutTask. \texttt{Resume}, en su implementación, también ejecutará \texttt{PutTask}, y lo hará mientras el primero también esta trabajando.
+
+La solución en monoprocesadores, en el caso de nSystem, es evitar que el \textit{timer} interrumpa la sección crítica, en nSystem evitar señales (esto mediante las funciones ya mencionadas y usadas). Importante recordar que las señales no se pierden, quedarán en espera hasta que se ejecute \texttt{END\_CRITICAL} y se vuelvan a activar.
+
+En sistemas operativos reales evitar las interrupciones (por ejemplo en Unix se hace uso de las instrucciones de máquina \textit{disable} y \textit{enable}). 
+
+% TODO: DEMOSTRAR ESTO CON DIAGRAMA: Un START\_CRITICAL que se ejecuta en \textit{nWaitSem} y suspende el proceso no habilitará las señales nuevamente, ya que el proceso es suspendido. Sin embargo estas serán activadas por otro proceso que se este ejecutando (de hecho el que es programado con Resume).
+
+% ¿POR QUÉ SE DIJO ESTO? Un \textit{handler} de señales, tiene implícitos (en sistemas \textit{like} Unix) al inicio una inhibición de la señales, y al retornar una reactivación. O sea un ``START\_CRITICAL'' y ``END\_CRITICAL'' de forma implícita. Respuesta: esto es porque las señales cuando se manejan deben hacerse de forma exclusiva. En el caso de las interrupciones por ejemplo (caso análogo pero con hw) antes de ser llamada la rutina que atiende la interrupción se desactiva cualquier otra cosa y luego se activa.
+
+Esta solución no sirve en multiprocesadores, ya que al deshabilitar las interrupciones se hace solo en un núcleo, por lo cual otro núcleo podría entrar a la sección crítica (solución serán los \textit{spinlocks}).
+
+% TODO
+% \subsection{Monitores}
+% nMonitor.c
+
+% \subsection{Mensajes}
+% Se verá la implementación sin \textit{timeout}, o sea asumiendo que es -1 siempre.
+
+\section{Planificación de CPU}
+Es similar a Round Robin, se encuentra el descriptor del proceso con su estado listo (aunque este corriendo en CPU), el \textit{stack pointer} y el resto de sus datos. Existe una variable global \textit{current\_task} que apunta a la tarea en ejecución (solo así se sabe cual de las ``listas'' esta en ejecución). El valor del \textit{stack pointer} no es útil en el proceso en ejecución, ya que se utiliza el valor del registro físico de CPU que cumple la misma funcionalidad (\textit{sp} de CPU).
+
+¿Qué pasa con una segunda tarea suspendida, su estado también es lista, pero no es apuntada por la variable \textit{current\_task}, la cual también tiene su pila. Los registros de la CPU (PC y otros) se guardan en el tope de la pila, y el \textit{stack pointer} del descriptor apunta a esta sección en la pila.
+
+Para el cambio de contexto existe una rutina \textit{ChangeContext} (escrita en \textit{assembler}) la cual recibe dos punteros a las tareas $t_1$ (saliente) y $t_2$ (entrante). Lo que se hace es guardar el estado de la CPU (de los registros) en la pila de $t_1$ y restaurar los registros que existen en la pila de $t_2$ en la CPU. Finalmente \textit{current\_task} apunta a la tarea $t_2$.
+
+\subsection{Scheduling}
+Para el \textit{scheduling} de \textit{nSystem} no hay nombre formal en la literatura, quien lo desarrollo lo llamo \textit{Preemptive Last Come First Serverd}, es LIFO y preemptive.
+
+Ráfagas se atienden en orden LIFO. El problema con LIFO son los múltiples cambios de contexto. Tiene sentido hacerlo así aquí porque el cambio de contexto es menor ya que los procesos son livianos. No hay cambio en el espacio de direcciones virtuales. Lo que, en este sistema, lo hace más barato. La lógica es darle la CPU al proceso que se desbloqueó.
+
+Entonces cuando llega una tarea $T$ mientras se ejecuta una tarea $U$, $T$ roba la CPU y $U$ queda en primer lugar en la cola.
+
+Para evitar hambruna, cada $t$ milisegundos, la tarea en ejecución pasa al final de la cola.
+
+Ejemplo:
+\begin{verbatim}
+    T1 T2 T3
+T0
+\end{verbatim}
+
+Casos:
+\begin{enumerate}[i.]
+\item Llega tarea $n$ (una nueva tarea): se coloca la tarea al inicio de la cola.
+\begin{verbatim}
+     T0 T1 T2 T3
+Tn
+\end{verbatim}
+
+\item T0 podría enviar un nReply a Tn que hizo un nSend: Tn toma la CPU.
+\begin{verbatim}
+    T0 T1 T2 T3
+Tn
+\end{verbatim}
+
+\item Sale T0 por espera: entra T1 (no se ve en esta lista, cuando vuelva será el caso 2).
+\begin{verbatim}
+    T2 T3
+T1
+\end{verbatim}
+
+\item Fin de la tajada, periódicamente interrupción del \textit{timer} que hace que la tarea que esta ejecutándose pase al final de la cola.
+\begin{verbatim}
+		T2 T3 T0
+T1
+\end{verbatim}
+\end{enumerate}
+
+Este sistema esta inspirado en los procesadores transputer\footnote{\url{http://en.wikipedia.org/wiki/Transputer}}, el cual tenía la particularidad que estaba diseñado para ejecutar procesos ligeros, donde el \textit{scheduling} y cambio de contexto estaban hechos en hardware. La gracia es que es tan simple que se puede poner en los transistores, entonces los cambios de contexto eran muy rápidos.
+
+\subsection{Implementación}
+
+En el código mostrado a continuación la única forma que un proceso pase la CPU a otro es con la función \textit{Resume}, el único caso diferente es cuando se crea una tarea, esto no se verá en el apunte, pero puede ser revisado en el archivo nProcess.c
+
+\begin{verbatim}
+/* Variables globales necesarias */
+nTask current_task; /* Puntero a tarea en ejecución */
+Queue ready_queue;  /* Cola para tareas listas */
+int current_slice;  /* tamaño de la tajada de tiempo actual */
+
+/* Restaura una tarea que esta primero en la cola de listos */
+/* La tarea que llamó a Resume es la que se está ejecutando */
+/* Ejemplo: nSend y nReply invocan a Resume */
+void ResumeNextReadyTask() {         /* Se mencionará como Resume() */
+  nTask esta = current_task;         /* sale */
+  nTask prox = GetTask(ready_queue); /* entra */
+  ChangeContext(esta, prox);         /* cambio de contexto, se ejecuta prox */
+                                     /* proceso que lo llamó pierde la CPU */
+  current_task = esta;               /* la tarea está en ejecución */
+}
+
+/* Rutina para interrupción del timer */
+void VtimerHandler () {
+  SetAlarm(VIRTUAL_TIMER, current_slice, VtimerHandler);
+  PutTask(ready_queue, current_task);
+  Resume();
+}
+\end{verbatim}
+
+En Unix existen dos \textit{timers} para el proceso, \textit{timer} de tiempo real (tiempo medido con reloj) y el \textit{timer} de tiempo virtual (donde el proceso estuvo efectivamente corriendo).
+
+\begin{verbatim}
+P1 ....._____....._____..... (. espera, _ ejecución)
+   |-----------------------| -> Tiempo real
+        |---|     |---|      -> Tiempo virtual
+\end{verbatim}
+
+Lo anterior es lo establecido mediante \textit{VIRTUAL\_TIMER}, el cual indica que se utilice \textit{ITIMER\_VIRTUAL} en \textit{setitimer}\footnote{man setitimer}, esta rutina, junto a \textit{sigaction}\footnote{man sigaction}, es invocada por \textit{SetAlarm}.
+
+
+Uno de los problemas que podría ocurrir es que no exista ninguna tarea (cola vacía): se podría llamar a ChangeContext con una tarea NULL (lo que provocaría un \textit{segmentation faul}). Posibles soluciones si ready\_queue esta vacía:
+
+\begin{itemize}
+	\item Esperar una señal (nSystem).
+	\item Esperar una interrupción (Unix).
+	\item Esperar con \textit{halt} (esto es propio de la CPU).
+	\item Evitar que la cola llegue a estar vacía, se usa proceso IDLE.
+\end{itemize}
+
+El proceso IDLE toma diferentes acciones para solucionar el problema, se describe desde la menor a la más drástica:
+\begin{itemize}
+	\item Halt
+	\item Suspensión liviano (menos voltaje y frecuencia)
+	\item Suspensión mayor (menos menos voltaje y frecuencia)
+	\item Después de mucho tiempo sin interrupciones, se apaga la CPU (los datos quedan en la memoria), sin embargo el costo de esto tiene relación con cuanta energía se está ahorrando, menos energía consume el procesador más cuesta despertarlo.
+\end{itemize}
+
+\section{Entrada y salida en nSystem}
+
+\subsection{API}
+
+\begin{verbatim}
+int fd, rc;
+fd = nOpen("archivo", flags);
+rc = nRead(fd, buffer, nbytes);
+rc = nWrite(fd, buffer, nbytes);
+nClose(fd);
+\end{verbatim}
+
+Las funciones utilizadas son las mismas del sistema operativo, o sea open, read, write y close, el problema es que estas funciones son bloqueantes para el proceso que las invoca (o sea E/S en Unix es bloqueante para el proceso). Si no hay nada que leer en el descriptor de archivo (por ejemplo del teclado o un \textit{socket}) la llamada bloquea todo el proceso pesado, no solo la tarea que llamo solicito leer. Esto es un problema ya que nSystem se ejecuta sobre un único proceso pesado y múltiples tareas (procesos livianos) pueden estar corriendo sobre el mismo proceso, que no deberían bloquearse por otra tarea que quiere leer desde cierta entrada.
+
+Solución a lo anterior es utilizar el descriptor de fichero (fd) en modo no bloqueante (con la llamada al sistema fcntl\footnote{man fcntl}), esto se realiza en la función \textit{nOpen}. El efecto de esto es:
+
+\begin{itemize}
+	\item read retorna -1 con errno == EAGAIN si se iba a bloquear.
+	\item Produce la señal SIGIO cuando el read se puede realizar.
+\end{itemize}
+
+Históricamente errno era una variable global, pero hoy en día los procesos pueden ejecutar varios hilos y esto no es viable, por problemas de \textit{data races} en la variable errno. Antes funcionada porque la única forma de procesos anteriormente era procesos pesados. Hoy en día se utiliza una macro que es una función que recupera el valor del error para dicho hilo.
+
+Entonces, la implementación de \textit{nRead} verifica que si no hay nada para leer, la tarea se suspenda y se ejecuten otras tareas, evitando la suspensión de todo el proceso pesado. Luego cuando se reciba la señal SIGIO, en su \textit{handler}, se reactivará la tarea que había solicitado la lectura.
+
+\subsection{Implementación de la API}
+
+\begin{verbatim}
+int nRead (int fd, char *buf, int n) {
+  int rc;
+  START_CRITICAL(); /* (1) */
+  rc = read (fd, buf, n); /* (3) */
+  while(rc<0 && errno==EAGAIN) {
+    AddWaitingTask(fd, current_task); /* mapea un file descriptor con una tarea */
+    current_task->status = WAIT_READ;
+    Resume();
+    rc = read(fd, buf, n); /* se vuelve a leer para ver si los datos ya están */
+  }
+  END_CRITICAL(); /* (1) */
+  return rc;
+}
+\end{verbatim}
+
+Puede ocurrir que existan 2 o más procesos que están leyendo del mismo descriptor de ficheros, pudiendo ocurrir que uno de ellos ``robe'' lo que otro quería leer. Entonces algo que se quería leer podría no estar disponible y se volvería a devolver rc -1. Por esto se debe verificar en un ciclo la condición de que efectivamente se haya retornado algo.
+
+\textit{AddWaitingTask} mapea un descriptor de fichero con una única tarea (mapa asociativo). Si otra tarea quiere leer del mismo descriptor se pisará el mapa. Esta es una limitación de nSystem, realizada para simplicidad de las implementaciones.
+
+\begin{verbatim}
+/* Para manejar la señal SIGIO */
+void SigioHandler () {
+	/* (2) */
+  PushTask(ready_queue, current_task);
+  select(...);
+  Por cada tarea T que puede avanzar {
+    T->status = READY;
+    PushTask(ready_queue, T);
+  }
+  Resume();
+  /* (2) */
+}
+\end{verbatim}
+
+Notas:
+\begin{enumerate}[(1)]
+	\item Inhibe las señales.
+	\item Las señales se inhiben automáticamente en una rutina de atención de señales.
+	\item ¡Nunca se bloquea! gatilla señal SIGIO cuando la lectura sí se puede hacer (esto por configuración de fcntl en \textit{nOpen}).
+\end{enumerate}
+
+Supongamos que se quieren leer 2 descriptores de ficheros y obtener datos de cualquiera de los dos será suficiente. Si se hace \textit{read} de un descriptor, no se podrá hacer \textit{read} del otro, al revés pasa lo mismo. La forma estándar de hacerlo es usando \textit{select}, donde se especifican máscaras de bits, una máscara por cada descriptor de ficheros desde el que se espera obtener información. \textit{select} entregará la información de que descriptor se puede leer cuando se produce la señal SIGIO, entonces se revisa el mapa asociativo de las tareas que esperan por ciertos descriptores y se ve que tarea es la que puede avanzar con el descriptor que se puede leer según la información entregada por \textit{select}.
+
+\section{Manejo de \textit{timeouts}}
+Ejemplos de timeouts, medidos en milisegundos, son nSleep(dt) y nReceive(\&task, dt). Con $dt$ el tiempo que se esperará.
+
+\subsection{Implementación de nSleep}
+
+\begin{verbatim}
+void nSleep(int dt) {
+  START_CRITICAL();
+  current_task->status = WAIT_SLEEP;
+  ProgramTask(dt);
+  Resume();
+  END_CRITICAL();
+}
+\end{verbatim}
+
+Unix ofrece un solo cronómetro de tiempo real (cronómetro regresivo), entonces se debe multiplexar para poder ser utilizado por varias tareas. Entonces se programará el cronómetro real para que envíe una señal para la tarea más próxima a ejecutar dentro del listado, esto requiere que las tareas estén ordenadas, desde la más temprana a ejecutar a la más tardía.
+
+Se usará \textit{Squeue} la cual es una cola ordenada por prioridades, cuando se agrega un elemento, se agrega con cierta prioridad, en este caso dicha prioridad será el tiempo.
+
+\begin{verbatim}
+Squeue wait_squeue; /* =MakeSqueue() */
+
+void ProgramTask (int dt) {
+  if(dt>0) {
+    int ct = nGetTime(); /* obtiene tiempo Unix */
+    int wt = ct + dt;
+    /* solo se programa el timer si no ha sido configurado o si la
+    prioridad de esta tarea es mejor que la del resto, o sea el tiempo
+    para la ejecución de esta tarea es menor a la de cualquier otra */
+    if(EmptySqueue(wait_squeue) || wt<GetNextTimeSqueue(wait_squeue)) {
+      SetAlarm(REALTIMER, wt-ct, RtimerHandler);
+    }
+    PutTaskSqueue(wait_squeue, current_task, wt);
+  }
+  else {
+    current_task->status = READY;
+    PushTask(ready_queue, current_task);
+  }
+}
+\end{verbatim}
+
+Se podría verificar que el $dt$ sea mayor que cero dentro de \textit{nSleep}, pero en dicho caso habría que hacer la modificación en cada rutina que use \textit{ProgramTask}, esto evitaría la condición $if(dt>0)$ en \textit{ProgramTask} y su correspondiente \textit{else}. Adicionalmente se podría evitar $ct$ y en $wt$ usar directamente \textit{nGetTime} y luego en \textit{SetAlarm} usar $dt$ en vez de $wt-ct$.
+
+\begin{verbatim}
+void RtimerHandler () {
+  PushTask (ready_queue, current_task);
+  AwakeTasks();
+  Resume();
+}
+
+void AwakeTasks () {
+  int ct = nGetTime();
+  int dt;
+  while(!EmptySqueue(wait_squeue) && GetNextTimeSqueue(wait_squeue)<=ct) {
+    nTask w = GetTaskSqueue(wait_squeue);
+    w->status = READY;
+    PushTask(ready_queue, w);
+  }
+  dt = EmptySqueue(wait_squeue) ? 0 : GetNextTimeSqueue(wait_squeue)-ct;
+  SetAlarm(REALTIMER, dt, RtimerHandler);
+}
+\end{verbatim}
+
+En el caso de \textit{nReceive} se deberán cancelar las tareas bajo ciertas condiciones, esto para evitar que una tarea que esta esperando por un mensaje sea despertada antes que reciba el mensaje por una alarma del \textit{timer}.
+
+\begin{verbatim}
+void CancelTask (nTask t) {
+  DeleteTaskSqueue(wait_squeue, t);
+  AwakeTasks(); /* para reconfigurar el timer */
+}
+\end{verbatim}
+
+\section{API, módulos, ejemplos y archivos}
+
+nSystem está formado por diferentes componentes o capas, utiliza una API que es entregada al usuario, como las requeridas para el uso de semáforos y monitores y otras rutinas que dan soporte a estas primitivas, las cuales el usuario no requiere usar directamente en la mayoría de los casos. Adicionalmente se hace uso de la API de Unix/Linux para el uso de ciertas funciones dependientes del sistema operativo.
+
+En el cuadro \ref{nSystem_partes} se encuentran listados algunos ejemplos de lo antes mencionado, notar que bajo la API de Unix se encuentra directamente el hardware y las rutinas específicas para usarlo. Los archivos mencionados se encuentran dentro del directorio \textit{src} dentro de la carpeta principal de nSystem.
+
+\begin{table}[h]
+	\centering
+	\begin{tabular}{|c|c|c|c|}
+		\hline
+		 API		& Módulo			& Ejemplo														& Archivo \\
+		\hline
+		nSystem	& Monitores		& nEnter														& nMonitor.c \\
+		nSystem	& Semáforos		& nWaitSem													& nSem.c \\
+		nSystem	& Tareas			& ProgramTask, ResumeNextReadyTask	& nProcess.c \\
+		nSystem	& E/S					& nRead, nWrite											& nIO.c \\
+		nSystem	& Bajo nivel	& START\_CRITICAL, SetAlarm 				& nDep.c \\
+		Unix		&							& read, write, setitimer, sigaction	& \\
+		\hline
+	\end{tabular}
+	\caption{Partes que conforman nSystem}
+	\label{nSystem_partes}
+\end{table}

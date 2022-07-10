@@ -58,13 +58,13 @@ void aumentar()
 accedida (para lectura y modificación) por más de un proceso se convierte
 también  en una sección crítica vulnerable \emph{data races}. O sea, lo que
 se pretendía usar para controlar a sección crítica se convierte en una sección
-rítica.                                                         
-	
+rítica.
+
 \item \textbf{¿Qué ocurre si dos procesos consultan en el \texttt{while} y la
 bandera es 0?} Puede ocurrir que el primer proceso sea interrumpido justo
 después del \texttt{while} y, al no alcanzar a poner la bandera en 1, el segundo
 proceso también entre a la sección crítica que se quiere proteger.
-	
+
 \end{enumerate}
 
 Existen diversas soluciones para el problema de exclusión mutua utilizando
@@ -132,7 +132,7 @@ Restricciones:
 
 \item \emph{get} no puede entregar \emph{items} que no fueron suministrados
 con \emph{put} (se deberá bloquear el consumidor si no hay items).
-	
+
 \item Con \emph{put} se pueden recibir hasta $N$ \emph{items} sin que hayan
 sido extraídos con \emph{get} (se deberá bloquear del productor si la pila
 está llena).
@@ -170,7 +170,7 @@ horizontal, rectangle split parts=10]
 		\node at (6, -2) [stack] (stack) {
 			\nodepart{six}X
 			\nodepart{seven}X
-		};		
+		};
 		% relaciones
 		\draw [arrow] (P1) to node {put} (stack);
 		\draw [arrow] (P2) to node {put} (stack);
@@ -445,8 +445,8 @@ de Chile}, puede ser vista en el anexo \ref{nSystem}.
 Item buffer[N];
 int e = 0;
 int f = 0;
-struct semaphore *empty; /* = semaphore_make (0) */
-struct semaphore *full;  /* = semaphore_make (N) */
+struct semaphore *empty; /* = semaphore_make (N) */
+struct semaphore *full;  /* = semaphore_make (0) */
 void put (Item item)
 {
   semaphore_wait (empty);
@@ -964,7 +964,7 @@ int message_send (struct task *t, void *m);
    si se indica como -1 se esperara infinitamente. */
 void *message_receive (struct task *pt, int delay);
 
-/* Responde el mensaje emitido por t, t se desbloqueará retornando rc
+/* Responde el mensaje emitido por t, t se desbloqueara retornando rc
    (en la llamada de message_send) */
 int message_reply (struct task *t, int rc);
 \end{lstlisting}

@@ -26,8 +26,7 @@ consultar, solo se presenta como un apunte para aquellos interesados en el tema.
 TODO
 ----
 
-*	Completar capítulos y anexos (se espera que se vayan liberando durante
-	marzo/abril del 2014).
+*	Revisión técnica de capítulos memoria y disco.
 
 *	Verificar aspectos técnicos, ortográficos y gramaticales del apunte (se
 	buscan revisores).

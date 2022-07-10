@@ -1,0 +1,271 @@
+%
+% Apunte de Sistemas Operativos
+% Copyright (C) 2014 Esteban De La Fuente Rubio (esteban[at]delaf.cl)
+%
+% Permission is granted to copy, distribute and/or modify this document
+% under the terms of the GNU Free Documentation License, Version 1.3
+% or any later version published by the Free Software Foundation;
+% with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.
+% A copy of the license is included in the section entitled "GNU
+% Free Documentation License".
+%
+% Link: http://www.gnu.org/copyleft/fdl.html
+%
+
+% LINUX
+% TODO
+\chapter{Linux}
+\label{linux}
+Durante este capítulo se discutirán aspectos relacionados con el núcleo de Linux y los conceptos ya discutidos anteriormente en este apunte. Se verán cosas generales y ejemplos sencillos en código para introducir al lector al sistema operativo.
+
+Los ejemplos aquí mostrados están considerados para un núcleo Linux 2.6 o superior.
+
+\section{Módulos en Linux}
+\label{linux_modulos}
+
+Un gran cambio durante el desarrollo de Linux fue el cambio de un núcleo monolítico a un núcleo usando módulos. Esto permitió cargar y descargar dinámicamente código en el sistema operativo, dicho código, generalmente, esta desarrollado para funcionar como \textit{driver} (controlador) de algún dispositivo.
+
+Es importante mencionar que todos los módulos corren como parte del núcleo, por lo cual corren en modo sistema. Lo anterior se debe tener en cuenta al momento de desarrollar, ya que una mala programación podría ocasionar graves problemas de seguridad.
+
+Los módulos son almacenados en el directorio \texttt{/lib/modules/`uname -r`}, donde \texttt{uname -r} es la versión del núcleo que actualmente se esta ejecutando.
+
+\subsection{Antes de comenzar}
+Antes de comenzar a desarrollar un módulo se deben considerar diferentes cosas, las cuales se mencionan a continuación.
+
+\subsubsection{Dependencias}
+
+El ambiente de desarrollo propuesto a continuación y donde se ha probado esta sección del apunte es sobre Debian GNU/Linux, sin embargo la programación de un módulo para Linux funcionará igualmente con cualquier distribución. Diferencias principales estarán en la forma de instalación de los paquetes de dependencias.
+
+De forma general se requiere:
+\begin{itemize}
+	\item Herramientas de desarrollo, como gcc y make.
+	\item Utilidades para módulos, como insmod y rmmod.
+	\item Código fuente de la versión de Linux actualmente en ejecución.
+\end{itemize}
+
+Instalación de paquetes:
+\begin{verbatim}
+# apt-get install build-essential              <- dependencias para compilar
+# apt-get install linux-headers-`uname -r`     <- cabeceras del núcleo
+\end{verbatim}
+
+\subsubsection{Comandos relacionados}
+
+La programación y compilación del módulo puede ser realizada como usuario normal, sin embargo para hacer la carga del módulo (o descarga) se deben tener permisos de administrador, o sea, ser usuario \textit{root}.
+
+\begin{verbatim}
+# insmod mimodulo.ko         <-   instala un módulo
+# rmmod mimodulo.ko          <-   remover un módulo
+# lsmod                      <-   lista módulos cargados
+# dmesg                      <-   mensajes del núcleo
+\end{verbatim}
+
+Un módulo desarrollado por nosotros, o uno del que no se este seguro de su estabilidad podría ocasionar problemas en el sistema, teniendo que en el peor de los casos reiniciar el mismo. Para evitar problemas con pérdidas de datos de \textit{buffers} que no hayan sido escritos al disco se recomienda sincronizar los \textit{buffers} con el disco previo a la carga del módulo. Lo anterior puede ser realizado ejecutando el comando \texttt{sync}\footnote{man sync}.
+
+\subsubsection{Pasos para la creación y ejecución de cualquier módulo}
+
+\begin{enumerate}
+	\item Crear código del módulo en archivo \texttt{.c}
+	\item Compilar código con \texttt{make}, generando módulo \texttt{.ko}
+	\item Cargar módulo en el sistema con \texttt{insmod}.
+	\item Revisar mensajes del núcleo con \texttt{dmesg} (opcional).
+\end{enumerate}
+
+\subsubsection{Dispositivos}
+Generalmente un módulo querrá ser desarrollado para funcionar como controlador de algún dispositivo, ya sea este real (físico) o virtual. A continuación se mencionan los dos tipos de dispositivos.
+
+\begin{enumerate}[i.]
+
+\item \textbf{Dispositivos de bloques}: un ejemplo de dispositivo de bloques es el disco duro (/dev/sda).
+
+\begin{verbatim}
+ls -l /dev/sda
+brw-rw---T 1 root disk 8, 0 jun 14 10:30 /dev/sda
+brw-rw---T 1 root disk 8, 1 jun 14 10:30 /dev/sda1
+brw-rw---T 1 root disk 8, 2 jun 14 10:30 /dev/sda2
+brw-rw---T 1 root disk 8, 5 jun 14 10:30 /dev/sda5
+\end{verbatim}
+
+\begin{itemize}
+	\item La \texttt{b} al inicio indica que es un dispositivo de bloques.
+	\item Los números 8, 0 identifican al número mayor (8) y número menor (0).
+	\begin{itemize}
+		\item El número mayor (o \textit{major}) indica que módulo se encarga de implementar las funcionalidades para utilizar el dispositivo (read, write, etc).
+		\item	El número menor (o \textit{minor}) se utiliza para distinguir múltiples dispositivos que son controlados por un mismo módulo (código que maneja read, write, etc).
+	\end{itemize}
+\end{itemize}
+
+\item \textbf{Dispositivos de caracter}: un ejemplo de dispositivo de caracter es el \textit{mouse} (/dev/input/mice).
+
+\begin{verbatim}
+ls -l /dev/input/mice 
+crw------- 1 root root 13, 63 jun 14 10:30 /dev/input/mice
+\end{verbatim}
+
+\begin{itemize}
+	\item La \texttt{c} indica que es un dispositivo de caracter.
+	\item Notar que aquí el número mayor es diferente, ya que el código (módulo) que controla el \textit{mouse} es diferente al del disco.
+\end{itemize}
+
+\end{enumerate}
+
+\subsection{Ejemplos}
+
+\subsubsection{Hola mundo}
+
+Como en todo lenguaje de programación y ejemplo de código, lo primero a ejecutar es un Hola Mundo, ya que esto permitirá probar lo mínimo requerido para la confección del módulo.
+
+Archivo \texttt{holamundo.c}:
+\begin{verbatim}
+#include <linux/module.h>       /* Requerido por todos los módulos */
+#include <linux/init.h>         /* Para usar module_init y module_exit */
+#include <linux/kernel.h>       /* Para usar printk */
+
+/* Información del módulo */
+MODULE_AUTHOR("Esteban De La Fuente Rubio");
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Ejemplo de Hola Mundo!");
+
+/* Prototipos de funciones */
+static int module_load (void);
+static void module_unload (void);
+
+/* Mapeo de funciones para carga y descarga */
+module_init(module_load);       /* Carga con insmod */
+module_exit(module_unload);     /* Descarga con rmmod */
+
+/* Implementación de las funciones */
+
+static int module_load (void) {
+     printk(KERN_INFO "Hola Mundo!\n");
+     return 0;                  /* 0 ok, !0 error en la carga */
+}
+
+static void module_unload (void) {
+     printk(KERN_INFO "Chao Mundo!\n");
+}
+\end{verbatim}
+
+Archivo \texttt{Makefile}
+\begin{verbatim}
+obj-m = holamundo.o
+KERNELDIR = /lib/modules/$(shell uname -r)/build
+PWD = $(shell pwd)
+all:
+        $(MAKE) -C $(KERNELDIR) M=$(PWD) modules
+clean:
+        rm -rf *.ko *.mod.c *.o *.order *.symvers
+\end{verbatim}
+
+Una vez se tengan los dos archivos creados se debe compilar, cargar y probar.
+
+\begin{enumerate}[i.]
+
+\item Compilar: \texttt{\$ make}
+\begin{verbatim}
+make -C /lib/modules/3.1.0-1-amd64/build M=/home/delaf/linux/holamundo modules
+make[1]: se ingresa al directorio `/usr/src/linux-headers-3.1.0-1-amd64'
+  CC [M]  /home/delaf/linux/holamundo/holamundo.o
+  Building modules, stage 2.
+  MODPOST 1 modules
+  CC      /home/delaf/linux/holamundo/holamundo.mod.o
+  LD [M]  /home/delaf/linux/holamundo/holamundo.ko
+make[1]: se sale del directorio `/usr/src/linux-headers-3.1.0-1-amd64'
+\end{verbatim}
+
+\item Cargar: \texttt{\# insmod holamundo.ko}
+
+\item Verificar el mensaje generado al cargar: \texttt{\$ dmesg | tail}
+\begin{verbatim}
+[20227.979580] Hola Mundo!
+\end{verbatim}
+
+\item Descargar: \texttt{\# rmmod holamundo.ko} o \texttt{\# rmmod holamundo}
+
+\item Verificar el mensaje generado al descargar: \texttt{\$ dmesg | tail}
+\begin{verbatim}
+[20534.414452] Chao Mundo!
+\end{verbatim}
+
+\end{enumerate}
+
+Como se puede apreciar en los ejemplos de ejecución de \texttt{dmesg}, este simple ejemplo solamente imprime un mensaje al cargar el módulo y al descargarlo, no hace nada ``útil''. A continuación se verán otros ejemplos que utilizarán como base lo visto en este.
+
+\subsubsection{Dispositivo de caracter virtual \texttt{/dev/memory}}
+
+Se creará un dispositivo virtual de memoria el cual utilizará la memoria principal para guardar datos entregados por el usuario. Para esto se creará un módulo que maneja un dispositivo de caracter virtual ubicado en \texttt{/dev/memory}. Este dispositivo será usado como un \textit{buffer} para almacenar y rescatar una cadena de caracteres.
+
+El uso esperado del dispositivo se describe a continuación:
+\begin{verbatim}
+$ echo abc > /dev/memory        <- guardar en el buffer (sobreescribiendo)
+$ cat /dev/memory               <- leer del buffer
+abc                             <- salida de cat
+\end{verbatim}
+
+\texttt{echo} invoca la llamada a sistema \texttt{write} reiteradamente hasta que se termina la entrada. \texttt{cat} a su vez invoca la llamada a sistema \texttt{read} reiteradamente hasta que se encuentre un fin de archivo (EOF) o de forma equivalente se retorne 0 mediante \texttt{read}.
+
+Se escribirán las funciones que se ejecutarán cuando ocurran las llamadas a sistema \texttt{write} y \texttt{read} para el dispositivo \texttt{/dev/memory}. Las cuales escribirán mensajes mediante \texttt{printk} al registro de mensajes, indicando cuantos bytes se han escrito y cuantos se han leído o cualquier otro mensaje que pueda ser de interés.
+
+Archivo \texttt{memory.c}:
+\begin{verbatim}
+
+\end{verbatim}
+
+Archivo \texttt{Makefile}
+\begin{verbatim}
+obj-m = memory.o
+KERNELDIR = /lib/modules/$(shell uname -r)/build
+PWD = $(shell pwd)
+all:
+        $(MAKE) -C $(KERNELDIR) M=$(PWD) modules
+clean:
+        rm -rf *.ko *.mod.c *.o *.order *.symvers
+\end{verbatim}
+
+Se debe crear un dispositivo de caracter virtual, con número mayor 60 (notar que este número es el mismo utilizado en la programación e inicialización del módulo) y menor 0. El comando \texttt{mknod} permite crear dispositivos virtuales, se deberá especificar si es un dispositivo de bloque o de caracter (indicando \texttt{b} o \texttt{c}).
+\begin{verbatim}
+# mknod /dev/memory c 60 0
+\end{verbatim}
+
+Luego ejecutar \texttt{make} y cargar con \texttt{insmod memory.ko}, similar a como se hizo en el ejemplo anterior.
+
+Para probar el funcionamiento del módulo seguir los ejemplos de los usos esperados, o sea usar \texttt{echo} y \texttt{cat} sobre el dispositivo \texttt{/dev/memory}.
+
+% TODO
+\section{Sincronización}
+
+Sincronización dentro del núcleo:
+
+\begin{verbatim}
+
+struct semaphore mutex;
+
+sema_init(&mutex, 1); /* 1 solo ticket */
+
+down(&mutex);
+
+up(&mutex);
+
+\end{verbatim}
+
+En modo usuario usar Ctrl+C se envía una señal al proceso para terminarlo, pero si se esta bloqueado en un down y el usuario apreta Ctrl+C la señal no será atrapada. Al usar down, el proceso se queda bloqueado hasta el final, o sea hasta que haya un up que le entregue un ticket. Para evitar este bloqueo (y no poder usar Ctrl+C para terminar el proceso) se puede utilizar un down interrumpible:
+
+\begin{verbatim}
+if(down_interruptible(&mutex)) {
+  ... aquí 
+}
+\end{verbatim}
+
+En los apuntes está la solución de la tarea que fue dada el 2009, pero dicha solución está semáforos y pensada para una tarea multicast, donde varias terminales con cat esperaban que hubiera algo disponible en el buffer y lo entregaba. Si no había nada en el buffer se debía esperar a que hubiera algo.
+
+En esta tarea se espera que se utilicen monitores, no semáforos, para evitar dataraces, y que no sea igual a la del 2009 xD
+
+\section{Ejercicios y preguntas}
+\begin{enumerate}
+	\item 
+\end{enumerate}
+
+\section{Referencias}
+\begin{itemize}
+	\item Sistemas Operativos, Quinta Edición, Abraham Silberschatz y Peter Baer Galvin, Capítulo 22.
+\end{itemize}
